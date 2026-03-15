@@ -3,8 +3,10 @@ pub mod core;
 pub mod providers;
 
 use crate::channels::StubChannel;
-use crate::core::{ChannelKind, ConversationId, IncomingMessage, MessageId, ParticipantId};
-use crate::core::{HandleIncomingMessage, Workflow};
+use crate::core::{
+    ChannelDispatcher, ChannelKind, ConversationId, HandleIncomingMessage, IncomingMessage,
+    MessageId, ParticipantId, RegisterChannelRoute, Workflow,
+};
 use crate::providers::StubProvider;
 use actix::prelude::*;
 
@@ -15,11 +17,30 @@ async fn main() {
     // 1. 各アクターを起動
     let provider_addr = StubProvider.start();
     let channel_addr = StubChannel.start();
+    let channel_dispatcher_addr = ChannelDispatcher::new().start();
+
+    match channel_dispatcher_addr
+        .send(RegisterChannelRoute {
+            kind: ChannelKind::Cli,
+            recipient: channel_addr.clone().recipient(),
+        })
+        .await
+    {
+        Ok(Ok(_)) => {}
+        Ok(Err(e)) => {
+            eprintln!("Failed to register CLI route: {:?}", e);
+            return;
+        }
+        Err(e) => {
+            eprintln!("Failed to communicate with ChannelDispatcher: {:?}", e);
+            return;
+        }
+    }
 
     // WorkflowにAddrを渡して起動
     let workflow_addr = Workflow {
         provider_addr,
-        channel_addr: channel_addr.clone(),
+        channel_dispatcher_addr,
     }
     .start();
 

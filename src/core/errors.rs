@@ -34,4 +34,7 @@ pub enum ChannelError {
 
     #[error("Target not found: {0}")]
     NotFound(String),
+
+    #[error("Channel route already registered: {0}")]
+    AlreadyRegistered(String),
 }

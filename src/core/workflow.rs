@@ -1,4 +1,4 @@
-use crate::channels::StubChannel;
+use crate::core::ChannelDispatcher;
 use crate::core::errors::WorkflowError;
 use crate::core::messages::{DispatchOutgoingMessage, GenerateCompletion, HandleIncomingMessage};
 use crate::core::model::{
@@ -11,7 +11,7 @@ use actix::prelude::*;
 pub struct Workflow {
     // 他のアクターへメッセージを送るためのアドレス（Addr）を保持します
     pub provider_addr: Addr<StubProvider>,
-    pub channel_addr: Addr<StubChannel>,
+    pub channel_dispatcher_addr: Addr<ChannelDispatcher>,
 }
 
 impl Workflow {
@@ -47,7 +47,7 @@ impl Workflow {
 
     /// Channel へ送信するアクター内部メッセージを組み立てる
     async fn dispatch_reply(
-        channel: Addr<StubChannel>,
+        dispatcher: Addr<ChannelDispatcher>,
         kind: ChannelKind,
         conversation_id: ConversationId,
         in_reply_to: Option<MessageId>,
@@ -62,11 +62,11 @@ impl Workflow {
             },
         };
 
-        match channel.send(reply_req).await {
+        match dispatcher.send(reply_req).await {
             Ok(Ok(_)) => Ok(()),
             Ok(Err(e)) => Err(WorkflowError::Channel(e)),
             Err(e) => Err(WorkflowError::Mailbox(format!(
-                "Failed to communicate with Channel: {:?}",
+                "Failed to communicate with ChannelDispatcher: {:?}",
                 e
             ))),
         }
@@ -90,7 +90,7 @@ impl Handler<HandleIncomingMessage> for Workflow {
     fn handle(&mut self, msg: HandleIncomingMessage, _ctx: &mut Self::Context) -> Self::Result {
         // メソッド抽出した処理を順次実行
         let provider = self.provider_addr.clone();
-        let channel = self.channel_addr.clone();
+        let dispatcher = self.channel_dispatcher_addr.clone();
         let content = msg.message.content.clone();
         let history = self.prepare_chat_history(content.clone());
         let msg_conversation_id = msg.message.conversation_id;
@@ -113,7 +113,7 @@ impl Handler<HandleIncomingMessage> for Workflow {
 
             // ステップ2: Channelへ回答を送信
             Self::dispatch_reply(
-                channel,
+                dispatcher,
                 msg_kind,
                 msg_conversation_id,
                 msg_in_reply_to,

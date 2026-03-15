@@ -1,7 +1,9 @@
 use actix::prelude::*;
 
 use crate::core::errors::{ChannelError, ProviderError, WorkflowError};
-use crate::core::model::{ChatMessage, ConversationId, IncomingMessage, OutgoingMessage};
+use crate::core::model::{
+    ChannelKind, ChatMessage, ConversationId, IncomingMessage, OutgoingMessage,
+};
 
 #[derive(Message, Debug)]
 #[rtype(result = "Result<(), WorkflowError>")]
@@ -26,4 +28,17 @@ pub struct ProviderResponse {
 #[rtype(result = "Result<(), ChannelError>")]
 pub struct DispatchOutgoingMessage {
     pub message: OutgoingMessage,
+}
+
+#[derive(Message, Clone)]
+#[rtype(result = "Result<(), ChannelError>")]
+pub struct RegisterChannelRoute {
+    pub kind: ChannelKind,
+    pub recipient: Recipient<DispatchOutgoingMessage>,
+}
+
+#[derive(Message, Debug, Clone, Copy)]
+#[rtype(result = "Result<(), ChannelError>")]
+pub struct UnregisterChannelRoute {
+    pub kind: ChannelKind,
 }
