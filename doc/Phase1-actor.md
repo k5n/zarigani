@@ -15,7 +15,7 @@
 作成したメッセージ定義ファイル に基づき、各アクターがメッセージを受け取った際の具体的な振る舞い（`Handler`）を実装します。
 
 * **Workflow**: `HandleIncomingMessage` を受け取ったら、`ChatMessage` を組み立てて Provider に `GenerateCompletion` を送信し、その結果を Channel に `SendReply` として送る処理を書きます。
-* **Provider**: `GenerateCompletion` を受け取ったら、実際にOpenAIのAPI（Codexなど）を叩き、結果を `ProviderResponse` として返す処理を書きます。
+* **Provider**: `GenerateCompletion` を受け取ったら、実際にOpenAI互換APIを叩き、結果を `ProviderResponse` として返す処理を書きます。
 * **Channel**: `SendReply` を受け取ったら、DiscordのAPIを叩いて特定のチャンネルにテキストを投稿する処理を書きます。
 
 ### 3. API通信のモック化（オウム返しの実現）

@@ -1,5 +1,6 @@
+use crate::core::errors::ChannelError;
+use crate::core::messages::DispatchOutgoingMessage;
 use actix::prelude::*;
-use crate::core::messages::{SendReply, ChannelError};
 
 pub struct Channel;
 
@@ -11,13 +12,16 @@ impl Actor for Channel {
     }
 }
 
-impl Handler<SendReply> for Channel {
+impl Handler<DispatchOutgoingMessage> for Channel {
     type Result = Result<(), ChannelError>;
 
-    fn handle(&mut self, msg: SendReply, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: DispatchOutgoingMessage, _ctx: &mut Self::Context) -> Self::Result {
         println!("--------------------------------------------------");
-        println!("Mock Channel outgoing message to {}: ", msg.target_channel_id);
-        println!("  >>> {}", msg.content);
+        println!(
+            "Mock Channel outgoing message for {:?} conversation {}: ",
+            msg.message.kind, msg.message.conversation_id.0
+        );
+        println!("  >>> {}", msg.message.content);
         println!("--------------------------------------------------");
         Ok(())
     }

@@ -1,7 +1,8 @@
 pub mod core;
 
+use crate::core::{Channel, HandleIncomingMessage, Provider, Workflow};
+use crate::core::{ChannelKind, ConversationId, IncomingMessage, MessageId, ParticipantId};
 use actix::prelude::*;
-use crate::core::{Provider, Channel, Workflow, HandleIncomingMessage};
 
 #[actix::main]
 async fn main() {
@@ -10,20 +11,26 @@ async fn main() {
     // 1. 各アクターを起動
     let provider_addr = Provider.start();
     let channel_addr = Channel.start();
-    
+
     // WorkflowにAddrを渡して起動
     let workflow_addr = Workflow {
         provider_addr,
         channel_addr: channel_addr.clone(),
-    }.start();
+    }
+    .start();
 
     println!("System initialized. Testing message flow...");
 
-    // 2. テスト用メッセージの送信 (Discordからメッセージが来た想定)
+    // 2. テスト用メッセージの送信 (CLIからメッセージが来た想定)
     let test_msg = HandleIncomingMessage {
-        source_channel_id: "test-channel-123".to_string(),
-        user_id: "test-user-456".to_string(),
-        content: "こんにちは！".to_string(),
+        message: IncomingMessage {
+            kind: ChannelKind::Cli,
+            conversation_id: ConversationId("conv-cli-001".to_string()),
+            participant_id: ParticipantId("test-user-456".to_string()),
+            message_id: Some(MessageId("msg-001".to_string())),
+            reply_to: None,
+            content: "こんにちは！".to_string(),
+        },
     };
 
     match workflow_addr.send(test_msg).await {
@@ -34,4 +41,3 @@ async fn main() {
 
     println!("Shutting down...");
 }
-
