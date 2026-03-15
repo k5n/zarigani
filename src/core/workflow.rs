@@ -1,7 +1,9 @@
-use crate::core::channel::Channel;
+use crate::channels::StubChannel;
 use crate::core::errors::WorkflowError;
 use crate::core::messages::{DispatchOutgoingMessage, GenerateCompletion, HandleIncomingMessage};
-use crate::core::model::{ChannelKind, ChatMessage, ConversationId, MessageId, OutgoingMessage, Role};
+use crate::core::model::{
+    ChannelKind, ChatMessage, ConversationId, MessageId, OutgoingMessage, Role,
+};
 use crate::core::provider::Provider;
 use actix::prelude::*;
 
@@ -9,7 +11,7 @@ use actix::prelude::*;
 pub struct Workflow {
     // 他のアクターへメッセージを送るためのアドレス（Addr）を保持します
     pub provider_addr: Addr<Provider>,
-    pub channel_addr: Addr<Channel>,
+    pub channel_addr: Addr<StubChannel>,
 }
 
 impl Workflow {
@@ -45,7 +47,7 @@ impl Workflow {
 
     /// Channel へ送信するアクター内部メッセージを組み立てる
     async fn dispatch_reply(
-        channel: Addr<Channel>,
+        channel: Addr<StubChannel>,
         kind: ChannelKind,
         conversation_id: ConversationId,
         in_reply_to: Option<MessageId>,

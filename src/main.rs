@@ -1,7 +1,9 @@
+mod channels;
 pub mod core;
 
-use crate::core::{Channel, HandleIncomingMessage, Provider, Workflow};
+use crate::channels::StubChannel;
 use crate::core::{ChannelKind, ConversationId, IncomingMessage, MessageId, ParticipantId};
+use crate::core::{HandleIncomingMessage, Provider, Workflow};
 use actix::prelude::*;
 
 #[actix::main]
@@ -10,7 +12,7 @@ async fn main() {
 
     // 1. 各アクターを起動
     let provider_addr = Provider.start();
-    let channel_addr = Channel.start();
+    let channel_addr = StubChannel.start();
 
     // WorkflowにAddrを渡して起動
     let workflow_addr = Workflow {
