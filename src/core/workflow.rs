@@ -4,13 +4,13 @@ use crate::core::messages::{DispatchOutgoingMessage, GenerateCompletion, HandleI
 use crate::core::model::{
     ChannelKind, ChatMessage, ConversationId, MessageId, OutgoingMessage, Role,
 };
-use crate::core::provider::Provider;
+use crate::providers::StubProvider;
 use actix::prelude::*;
 
 // 1. Workflowアクターの構造体定義
 pub struct Workflow {
     // 他のアクターへメッセージを送るためのアドレス（Addr）を保持します
-    pub provider_addr: Addr<Provider>,
+    pub provider_addr: Addr<StubProvider>,
     pub channel_addr: Addr<StubChannel>,
 }
 
@@ -25,7 +25,7 @@ impl Workflow {
 
     /// Provider (LLM) に対して GenerateCompletion を送信し、結果を取得する
     async fn get_ai_completion(
-        provider: Addr<Provider>,
+        provider: Addr<StubProvider>,
         conversation_id: ConversationId,
         history: Vec<ChatMessage>,
     ) -> Result<String, WorkflowError> {

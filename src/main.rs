@@ -1,9 +1,11 @@
 mod channels;
 pub mod core;
+pub mod providers;
 
 use crate::channels::StubChannel;
 use crate::core::{ChannelKind, ConversationId, IncomingMessage, MessageId, ParticipantId};
-use crate::core::{HandleIncomingMessage, Provider, Workflow};
+use crate::core::{HandleIncomingMessage, Workflow};
+use crate::providers::StubProvider;
 use actix::prelude::*;
 
 #[actix::main]
@@ -11,7 +13,7 @@ async fn main() {
     println!("Starting Zarigani system...");
 
     // 1. 各アクターを起動
-    let provider_addr = Provider.start();
+    let provider_addr = StubProvider.start();
     let channel_addr = StubChannel.start();
 
     // WorkflowにAddrを渡して起動

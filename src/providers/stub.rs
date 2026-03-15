@@ -2,17 +2,17 @@ use crate::core::errors::ProviderError;
 use crate::core::messages::{GenerateCompletion, ProviderResponse};
 use actix::prelude::*;
 
-pub struct Provider;
+pub struct StubProvider;
 
-impl Actor for Provider {
+impl Actor for StubProvider {
     type Context = Context<Self>;
 
     fn started(&mut self, _ctx: &mut Self::Context) {
-        println!("Mock Provider actor started.");
+        println!("Mock StubProvider actor started.");
     }
 }
 
-impl Handler<GenerateCompletion> for Provider {
+impl Handler<GenerateCompletion> for StubProvider {
     type Result = Result<ProviderResponse, ProviderError>;
 
     fn handle(&mut self, msg: GenerateCompletion, _ctx: &mut Self::Context) -> Self::Result {
