@@ -6,7 +6,7 @@ use crate::core::model::{
 };
 use crate::providers::StubProvider;
 use actix::prelude::*;
-use tracing::{debug, error, info};
+use tracing::{Instrument, debug, error, info, info_span};
 
 // 1. Workflowアクターの構造体定義
 pub struct Workflow {
@@ -36,14 +36,15 @@ impl Workflow {
             system_prompt: Some("あなたはZariganiという名前のAIアシスタントです。".to_string()),
         };
 
-        match provider.send(completion_req).await {
-            Ok(Ok(res)) => Ok(res.content),
-            Ok(Err(e)) => Err(WorkflowError::Provider(e)),
-            Err(e) => Err(WorkflowError::Mailbox(format!(
-                "Failed to communicate with Provider: {:?}",
-                e
-            ))),
-        }
+        let res = provider
+            .send(completion_req)
+            .await
+            .map_err(|e| {
+                WorkflowError::Mailbox(format!("Failed to communicate with Provider: {:?}", e))
+            })?
+            .map_err(WorkflowError::Provider)?;
+
+        Ok(res.content)
     }
 
     /// Channel へ送信するアクター内部メッセージを組み立てる
@@ -63,14 +64,16 @@ impl Workflow {
             },
         };
 
-        match dispatcher.send(reply_req).await {
-            Ok(Ok(_)) => Ok(()),
-            Ok(Err(e)) => Err(WorkflowError::Channel(e)),
-            Err(e) => Err(WorkflowError::Mailbox(format!(
-                "Failed to communicate with ChannelDispatcher: {:?}",
-                e
-            ))),
-        }
+        dispatcher
+            .send(reply_req)
+            .await
+            .map_err(|e| {
+                WorkflowError::Mailbox(format!(
+                    "Failed to communicate with ChannelDispatcher: {:?}",
+                    e
+                ))
+            })?
+            .map_err(WorkflowError::Channel)
     }
 }
 
@@ -95,63 +98,50 @@ impl Handler<HandleIncomingMessage> for Workflow {
         let content = msg.message.content.clone();
         let history = self.prepare_chat_history(content.clone());
         let msg_conversation_id = msg.message.conversation_id;
-        let msg_in_reply_to = msg.message.message_id;
+        let msg_in_reply_to = msg.message.message_id.clone();
         let msg_kind = msg.message.kind;
         let participant_id = msg.message.participant_id.0;
         let incoming_content = content;
-        let msg_conversation_id_for_provider = msg_conversation_id.clone();
 
-        Box::pin(async move {
-            debug!(
-                actor = "workflow",
-                participant_id = %participant_id,
-                conversation_id = %msg_conversation_id_for_provider.0,
-                channel_kind = ?msg_kind,
-                content = %incoming_content,
-                "incoming message received"
-            );
+        let span = info_span!(
+            "handle_incoming_message",
+            actor = "workflow",
+            conversation_id = %msg_conversation_id.0,
+            message_id = ?msg.message.message_id,
+            channel_kind = ?msg_kind,
+            participant_id = %participant_id,
+        );
 
-            // ステップ1: AIからの回答を取得
-            let response_content = match Self::get_ai_completion(
-                provider,
-                msg_conversation_id_for_provider.clone(),
-                history,
-            )
-            .await
-            {
-                Ok(content) => content,
-                Err(err) => {
-                    error!(actor = "workflow", error = %err, "failed to get AI completion");
-                    return Err(err);
-                }
-            };
+        Box::pin(
+            async move {
+                debug!(content = %incoming_content, "incoming message received");
+                debug!("provider completion request started");
 
-            // ステップ2: Channelへ回答を送信
-            if let Err(err) = Self::dispatch_reply(
-                dispatcher,
-                msg_kind,
-                msg_conversation_id.clone(),
-                msg_in_reply_to,
-                response_content,
-            )
-            .await
-            {
-                error!(
-                    actor = "workflow",
-                    conversation_id = %msg_conversation_id.0,
-                    error = %err,
-                    "failed to dispatch reply"
-                );
-                return Err(err);
+                // ステップ1: AIからの回答を取得
+                let response_content =
+                    Self::get_ai_completion(provider, msg_conversation_id.clone(), history)
+                        .await
+                        .inspect_err(|err| {
+                            error!(error = %err, "failed to get AI completion");
+                        })?;
+
+                // ステップ2: Channelへ回答を送信
+                Self::dispatch_reply(
+                    dispatcher,
+                    msg_kind,
+                    msg_conversation_id,
+                    msg_in_reply_to,
+                    response_content,
+                )
+                .await
+                .inspect_err(|err| {
+                    error!(error = %err, "failed to dispatch reply");
+                })?;
+
+                info!("workflow successfully processed message");
+                Ok(())
             }
-
-            info!(
-                actor = "workflow",
-                conversation_id = %msg_conversation_id.0,
-                participant_id = %participant_id,
-                "workflow successfully processed message"
-            );
-            Ok(())
-        })
+            .instrument(span),
+        )
     }
 }
