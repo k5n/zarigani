@@ -12,6 +12,57 @@ pub struct Workflow {
     pub channel_addr: Addr<Channel>,
 }
 
+impl Workflow {
+    /// メッセージをChatMessageに変換し、履歴を組み立てる
+    fn prepare_chat_history(&self, content: String) -> Vec<ChatMessage> {
+        vec![ChatMessage {
+            role: Role::User,
+            content,
+        }]
+    }
+
+    /// Provider (LLM) に対して GenerateCompletion を送信し、結果を取得する
+    async fn get_ai_completion(
+        provider: Addr<Provider>,
+        history: Vec<ChatMessage>,
+    ) -> Result<String, WorkflowError> {
+        let completion_req = GenerateCompletion {
+            history,
+            system_prompt: Some("あなたはZariganiという名前のAIアシスタントです。".to_string()),
+        };
+
+        match provider.send(completion_req).await {
+            Ok(Ok(res)) => Ok(res.content),
+            Ok(Err(e)) => Err(WorkflowError::Provider(e)),
+            Err(e) => Err(WorkflowError::Mailbox(format!(
+                "Failed to communicate with Provider: {:?}",
+                e
+            ))),
+        }
+    }
+
+    /// Channel に対して SendReply を送信し、チャット投稿するよう指示する
+    async fn dispatch_reply(
+        channel: Addr<Channel>,
+        target_channel_id: String,
+        content: String,
+    ) -> Result<(), WorkflowError> {
+        let reply_req = SendReply {
+            target_channel_id,
+            content,
+        };
+
+        match channel.send(reply_req).await {
+            Ok(Ok(_)) => Ok(()),
+            Ok(Err(e)) => Err(WorkflowError::Channel(e)),
+            Err(e) => Err(WorkflowError::Mailbox(format!(
+                "Failed to communicate with Channel: {:?}",
+                e
+            ))),
+        }
+    }
+}
+
 // Actorトレイトの実装
 impl Actor for Workflow {
     type Context = Context<Self>;
@@ -27,56 +78,22 @@ impl Handler<HandleIncomingMessage> for Workflow {
     type Result = ResponseFuture<Result<(), WorkflowError>>;
 
     fn handle(&mut self, msg: HandleIncomingMessage, _ctx: &mut Self::Context) -> Self::Result {
-        // 非同期ブロック(async move)内で使うために、アドレスをクローンしておきます
+        // メソッド抽出した処理を順次実行
         let provider = self.provider_addr.clone();
         let channel = self.channel_addr.clone();
+        let history = self.prepare_chat_history(msg.content.clone());
 
         Box::pin(async move {
             println!("Workflow received message from {}: {}", msg.user_id, msg.content);
 
-            // ステップ1: メッセージをChatMessageに変換し、履歴を組み立てる
-            let chat_msg = ChatMessage {
-                role: Role::User,
-                content: msg.content.clone(),
-            };
+            // ステップ1: AIからの回答を取得
+            let response_content = Self::get_ai_completion(provider, history).await?;
 
-            // ステップ2: Provider (LLM) に対して GenerateCompletion を送信
-            let completion_req = GenerateCompletion {
-                history: vec![chat_msg], // フェーズ1では過去の履歴なしで、今回の発言のみ送る
-                system_prompt: Some("あなたはZariganiという名前のAIアシスタントです。".to_string()),
-            };
+            // ステップ2: Channelへ回答を送信
+            Self::dispatch_reply(channel, msg.source_channel_id, response_content).await?;
 
-            // Providerからの返答を待機
-            let provider_res = provider.send(completion_req).await;
-
-            // 返答内容の取り出し（エラーハンドリングも含む）
-            let response_content = match provider_res {
-                Ok(Ok(res)) => res.content,
-                Ok(Err(e)) => format!("[Provider Error] {:?}", e),
-                Err(e) => format!("[Actix Mailbox Error] Failed to communicate with Provider: {:?}", e),
-            };
-
-            // ステップ3: Channel に対して SendReply を送信し、チャット投稿するよう指示
-            let reply_req = SendReply {
-                target_channel_id: msg.source_channel_id,
-                content: response_content,
-            };
-
-            // Channelからの返答を待機（送信成功・失敗の確認）
-            match channel.send(reply_req).await {
-                Ok(Ok(_)) => {
-                    println!("Workflow successfully forwarded reply to Channel.");
-                    Ok(())
-                }
-                Ok(Err(e)) => {
-                    eprintln!("[Channel Error] {:?}", e);
-                    Err(WorkflowError::General("Channel failed to send message".to_string()))
-                }
-                Err(e) => {
-                    eprintln!("[Actix Mailbox Error] Failed to communicate with Channel: {:?}", e);
-                    Err(WorkflowError::General("Mailbox error with Channel".to_string()))
-                }
-            }
+            println!("Workflow successfully processed message.");
+            Ok(())
         })
     }
 }

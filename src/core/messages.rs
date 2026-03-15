@@ -31,6 +31,15 @@ pub struct HandleIncomingMessage {
 pub enum WorkflowError {
     #[error("Workflow error: {0}")]
     General(String),
+
+    #[error("Provider error: {0}")]
+    Provider(#[from] ProviderError),
+
+    #[error("Channel error: {0}")]
+    Channel(#[from] ChannelError),
+
+    #[error("Mailbox error: {0}")]
+    Mailbox(String),
 }
 
 // --- Provider ---
