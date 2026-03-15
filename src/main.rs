@@ -2,13 +2,14 @@ mod channels;
 pub mod core;
 pub mod providers;
 
-use crate::channels::StubChannel;
+use crate::channels::CliChannel;
 use crate::core::{
     ChannelDispatcher, ChannelKind, ConversationId, HandleIncomingMessage, IncomingMessage,
     MessageId, ParticipantId, RegisterChannelRoute, Workflow,
 };
 use crate::providers::StubProvider;
 use actix::prelude::*;
+use std::io::{self, BufRead, Write};
 
 #[actix::main]
 async fn main() {
@@ -16,7 +17,7 @@ async fn main() {
 
     // 1. 各アクターを起動
     let provider_addr = StubProvider.start();
-    let channel_addr = StubChannel.start();
+    let channel_addr = CliChannel.start();
     let channel_dispatcher_addr = ChannelDispatcher::new().start();
 
     match channel_dispatcher_addr
@@ -44,25 +45,61 @@ async fn main() {
     }
     .start();
 
-    println!("System initialized. Testing message flow...");
+    println!(
+        "System initialized. Type your message and press Enter. Type /exit or Ctrl-D to quit."
+    );
 
-    // 2. テスト用メッセージの送信 (CLIからメッセージが来た想定)
-    let test_msg = HandleIncomingMessage {
-        message: IncomingMessage {
-            kind: ChannelKind::Cli,
-            conversation_id: ConversationId("conv-cli-001".to_string()),
-            participant_id: ParticipantId("test-user-456".to_string()),
-            message_id: Some(MessageId("msg-001".to_string())),
-            reply_to: None,
-            content: "こんにちは！".to_string(),
-        },
-    };
+    run_cli_input_loop(workflow_addr).await;
+}
 
-    match workflow_addr.send(test_msg).await {
-        Ok(Ok(_)) => println!("Main received: Workflow processed message successfully."),
-        Ok(Err(e)) => eprintln!("Main received error from Workflow: {:?}", e),
-        Err(e) => eprintln!("Main failed to communicate with Workflow: {:?}", e),
+async fn run_cli_input_loop(workflow_addr: Addr<Workflow>) {
+    let stdin = io::stdin();
+    let mut stdin = io::BufReader::new(stdin.lock());
+    let mut message_id = 1u64;
+    loop {
+        print!("user> ");
+        std::io::stdout().flush().ok();
+
+        let mut line = String::new();
+        match stdin.read_line(&mut line) {
+            Ok(0) => {
+                println!("\nEOF received, exiting...");
+                break;
+            }
+            Ok(_) => {
+                let content = line.trim_end().to_string();
+
+                if content.is_empty() {
+                    continue;
+                }
+
+                if content == "/exit" {
+                    println!("Exiting...\n");
+                    break;
+                }
+
+                let message = HandleIncomingMessage {
+                    message: IncomingMessage {
+                        kind: ChannelKind::Cli,
+                        conversation_id: ConversationId("cli:default".to_string()),
+                        participant_id: ParticipantId("cli:user".to_string()),
+                        message_id: Some(MessageId(format!("cli-msg-{message_id}"))),
+                        reply_to: None,
+                        content,
+                    },
+                };
+                message_id += 1;
+
+                match workflow_addr.send(message).await {
+                    Ok(Ok(_)) => {}
+                    Ok(Err(e)) => eprintln!("Failed to process message: {:?}", e),
+                    Err(e) => eprintln!("Failed to communicate with Workflow: {:?}", e),
+                }
+            }
+            Err(e) => {
+                eprintln!("Failed to read stdin: {:?}", e);
+                break;
+            }
+        }
     }
-
-    println!("Shutting down...");
 }

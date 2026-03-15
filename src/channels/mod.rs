@@ -1,3 +1,3 @@
-pub mod stub;
+pub mod cli;
 
-pub use stub::StubChannel;
+pub use cli::CliChannel;
