@@ -5,6 +5,7 @@
     "dictionaries": [],
     "words": [
         "actix",
+        "Ollama",
         "rtype",
         "serde",
         "thiserror",
