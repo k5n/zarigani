@@ -10,16 +10,20 @@ use crate::core::{
 use crate::providers::StubProvider;
 use actix::prelude::*;
 use std::io::{self, BufRead, Write};
+use tracing::{error, warn};
+use tracing_subscriber::{EnvFilter, fmt};
 
 #[actix::main]
 async fn main() {
+    init_tracing();
     println!("Starting Zarigani system...");
 
-    // 1. 各アクターを起動
+    // 各アクターを起動
     let provider_addr = StubProvider.start();
     let channel_addr = CliChannel.start();
     let channel_dispatcher_addr = ChannelDispatcher::new().start();
 
+    // ChannelDispatcherにCLIチャネルのルートを登録
     match channel_dispatcher_addr
         .send(RegisterChannelRoute {
             kind: ChannelKind::Cli,
@@ -29,11 +33,16 @@ async fn main() {
     {
         Ok(Ok(_)) => {}
         Ok(Err(e)) => {
-            eprintln!("Failed to register CLI route: {:?}", e);
+            error!(actor = "main", error = %e, "failed to register CLI route");
             return;
         }
         Err(e) => {
-            eprintln!("Failed to communicate with ChannelDispatcher: {:?}", e);
+            error!(
+                actor = "main",
+                target = "ChannelDispatcher",
+                error = %e,
+                "failed to communicate with ChannelDispatcher"
+            );
             return;
         }
     }
@@ -50,6 +59,13 @@ async fn main() {
     );
 
     run_cli_input_loop(workflow_addr).await;
+}
+
+fn init_tracing() {
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("zarigani=debug,actix=info"));
+
+    fmt().with_env_filter(filter).with_target(false).init();
 }
 
 async fn run_cli_input_loop(workflow_addr: Addr<Workflow>) {
@@ -92,12 +108,17 @@ async fn run_cli_input_loop(workflow_addr: Addr<Workflow>) {
 
                 match workflow_addr.send(message).await {
                     Ok(Ok(_)) => {}
-                    Ok(Err(e)) => eprintln!("Failed to process message: {:?}", e),
-                    Err(e) => eprintln!("Failed to communicate with Workflow: {:?}", e),
+                    Ok(Err(e)) => error!(actor = "main", error = %e, "failed to process message"),
+                    Err(e) => warn!(
+                        actor = "main",
+                        target = "Workflow",
+                        error = %e,
+                        "failed to communicate with Workflow"
+                    ),
                 }
             }
             Err(e) => {
-                eprintln!("Failed to read stdin: {:?}", e);
+                error!(actor = "main", error = %e, "failed to read stdin");
                 break;
             }
         }

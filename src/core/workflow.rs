@@ -6,6 +6,7 @@ use crate::core::model::{
 };
 use crate::providers::StubProvider;
 use actix::prelude::*;
+use tracing::{debug, error, info};
 
 // 1. Workflowアクターの構造体定義
 pub struct Workflow {
@@ -78,7 +79,7 @@ impl Actor for Workflow {
     type Context = Context<Self>;
 
     fn started(&mut self, _ctx: &mut Self::Context) {
-        println!("Workflow actor started.");
+        info!(actor = "workflow", "actor started");
     }
 }
 
@@ -101,27 +102,55 @@ impl Handler<HandleIncomingMessage> for Workflow {
         let msg_conversation_id_for_provider = msg_conversation_id.clone();
 
         Box::pin(async move {
-            println!(
-                "Workflow received message from {} in {:?}: {}",
-                participant_id, msg_kind, incoming_content
+            debug!(
+                actor = "workflow",
+                participant_id = %participant_id,
+                conversation_id = %msg_conversation_id_for_provider.0,
+                channel_kind = ?msg_kind,
+                content = %incoming_content,
+                "incoming message received"
             );
 
             // ステップ1: AIからの回答を取得
-            let response_content =
-                Self::get_ai_completion(provider, msg_conversation_id_for_provider, history)
-                    .await?;
+            let response_content = match Self::get_ai_completion(
+                provider,
+                msg_conversation_id_for_provider.clone(),
+                history,
+            )
+            .await
+            {
+                Ok(content) => content,
+                Err(err) => {
+                    error!(actor = "workflow", error = %err, "failed to get AI completion");
+                    return Err(err);
+                }
+            };
 
             // ステップ2: Channelへ回答を送信
-            Self::dispatch_reply(
+            if let Err(err) = Self::dispatch_reply(
                 dispatcher,
                 msg_kind,
-                msg_conversation_id,
+                msg_conversation_id.clone(),
                 msg_in_reply_to,
                 response_content,
             )
-            .await?;
+            .await
+            {
+                error!(
+                    actor = "workflow",
+                    conversation_id = %msg_conversation_id.0,
+                    error = %err,
+                    "failed to dispatch reply"
+                );
+                return Err(err);
+            }
 
-            println!("Workflow successfully processed message.");
+            info!(
+                actor = "workflow",
+                conversation_id = %msg_conversation_id.0,
+                participant_id = %participant_id,
+                "workflow successfully processed message"
+            );
             Ok(())
         })
     }

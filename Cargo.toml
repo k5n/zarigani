@@ -8,3 +8,9 @@ actix = "0.13"
 thiserror = "2.0"
 anyhow = "1.0"
 serde = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+# # Discord
+# serenity = "0.12"
+# tokio = { version = "1.21.2", features = ["macros", "rt-multi-thread"] }
