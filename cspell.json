@@ -6,6 +6,8 @@
     "words": [
         "actix",
         "rtype",
+        "serde",
+        "thiserror",
         "zarigani"
     ],
     "ignoreWords": [],

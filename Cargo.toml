@@ -5,3 +5,6 @@ edition = "2024"
 
 [dependencies]
 actix = "0.13"
+thiserror = "2.0"
+anyhow = "1.0"
+serde = "1.0"
