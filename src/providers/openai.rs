@@ -2,41 +2,21 @@ use actix::prelude::*;
 use rig::client::CompletionClient;
 use rig::completion::{self, CompletionModel as _, Message};
 use rig::providers::openai;
-use std::env;
+use serde::Deserialize;
 use tracing::{debug, error, info};
 
 use crate::core::errors::ProviderError;
 use crate::core::messages::{GenerateCompletion, ProviderResponse};
 use crate::core::model::{ChatMessage, Role};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct OpenAiCompatibleProviderConfig {
     pub base_url: String,
-    pub api_key: String,
+    pub api_key: Option<String>,
     pub model: String,
     pub system_prompt: Option<String>,
     pub temperature: Option<f64>,
     pub max_tokens: Option<u64>,
-}
-
-impl OpenAiCompatibleProviderConfig {
-    pub fn from_env() -> Option<Self> {
-        let base_url = env::var("OPENAI_BASE_URL").ok()?;
-        let model = env::var("OPENAI_MODEL").ok()?;
-
-        Some(Self {
-            base_url,
-            api_key: env::var("OPENAI_API_KEY").unwrap_or_else(|_| "dummy".to_string()),
-            model,
-            system_prompt: env::var("OPENAI_SYSTEM_PROMPT").ok(),
-            temperature: env::var("OPENAI_TEMPERATURE")
-                .ok()
-                .and_then(|value| value.parse::<f64>().ok()),
-            max_tokens: env::var("OPENAI_MAX_TOKENS")
-                .ok()
-                .and_then(|value| value.parse::<u64>().ok()),
-        })
-    }
 }
 
 pub struct OpenAiCompatibleProvider {
@@ -46,8 +26,12 @@ pub struct OpenAiCompatibleProvider {
 
 impl OpenAiCompatibleProvider {
     pub fn new(config: OpenAiCompatibleProviderConfig) -> Result<Self, ProviderError> {
+        let api_key = config
+            .api_key
+            .clone()
+            .unwrap_or_else(|| "dummy".to_string());
         let client = openai::Client::builder()
-            .api_key(&config.api_key)
+            .api_key(&api_key)
             .base_url(&config.base_url)
             .build()
             .map_err(|err| {
