@@ -7,7 +7,7 @@ use crate::core::messages::{
     DispatchOutgoingMessage, RegisterChannelRoute, UnregisterChannelRoute,
 };
 use crate::core::model::ChannelKind;
-use tracing::{debug, error, info, warn};
+use tracing::{Instrument, debug, error, info, info_span, warn};
 
 pub struct ChannelDispatcher {
     routes_by_kind: HashMap<ChannelKind, Recipient<DispatchOutgoingMessage>>,
@@ -18,6 +18,51 @@ impl ChannelDispatcher {
         Self {
             routes_by_kind: HashMap::new(),
         }
+    }
+
+    fn register_route(
+        &mut self,
+        kind: ChannelKind,
+        recipient: Recipient<DispatchOutgoingMessage>,
+    ) -> Result<(), ChannelError> {
+        if self.routes_by_kind.contains_key(&kind) {
+            warn!(
+                actor = "channel_dispatcher",
+                channel_kind = ?kind,
+                "register route request for already registered channel kind"
+            );
+            return Err(ChannelError::AlreadyRegistered(format!(
+                "route for {:?} is already registered",
+                kind
+            )));
+        }
+
+        self.routes_by_kind.insert(kind, recipient);
+        debug!(
+            actor = "channel_dispatcher",
+            channel_kind = ?kind,
+            "registered channel route"
+        );
+        Ok(())
+    }
+
+    fn unregister_route(&mut self, kind: ChannelKind) {
+        self.routes_by_kind.remove(&kind);
+        debug!(
+            actor = "channel_dispatcher",
+            channel_kind = ?kind,
+            "unregistered channel route"
+        );
+    }
+
+    async fn dispatch_message(
+        recipient: Recipient<DispatchOutgoingMessage>,
+        msg: DispatchOutgoingMessage,
+    ) -> Result<(), ChannelError> {
+        recipient.send(msg).await.map_err(|err| {
+            error!(error = %err, "failed to communicate with route");
+            ChannelError::General(format!("failed to communicate with route: {:?}", err))
+        })?
     }
 }
 
@@ -39,25 +84,7 @@ impl Handler<RegisterChannelRoute> for ChannelDispatcher {
     type Result = Result<(), ChannelError>;
 
     fn handle(&mut self, msg: RegisterChannelRoute, _ctx: &mut Self::Context) -> Self::Result {
-        if self.routes_by_kind.contains_key(&msg.kind) {
-            warn!(
-                actor = "channel_dispatcher",
-                channel_kind = ?msg.kind,
-                "register route request for already registered channel kind"
-            );
-            return Err(ChannelError::AlreadyRegistered(format!(
-                "route for {:?} is already registered",
-                msg.kind
-            )));
-        }
-
-        self.routes_by_kind.insert(msg.kind, msg.recipient);
-        debug!(
-            actor = "channel_dispatcher",
-            channel_kind = ?msg.kind,
-            "registered channel route"
-        );
-        Ok(())
+        self.register_route(msg.kind, msg.recipient)
     }
 }
 
@@ -65,12 +92,7 @@ impl Handler<UnregisterChannelRoute> for ChannelDispatcher {
     type Result = Result<(), ChannelError>;
 
     fn handle(&mut self, msg: UnregisterChannelRoute, _ctx: &mut Self::Context) -> Self::Result {
-        self.routes_by_kind.remove(&msg.kind);
-        debug!(
-            actor = "channel_dispatcher",
-            channel_kind = ?msg.kind,
-            "unregistered channel route"
-        );
+        self.unregister_route(msg.kind);
         Ok(())
     }
 }
@@ -83,39 +105,24 @@ impl Handler<DispatchOutgoingMessage> for ChannelDispatcher {
         let conversation_id = msg.message.conversation_id.clone();
         let recipient = self.routes_by_kind.get(&kind).cloned();
 
-        Box::pin(async move {
-            let Some(recipient) = recipient else {
-                warn!(
-                    actor = "channel_dispatcher",
-                    channel_kind = ?kind,
-                    conversation_id = %conversation_id.0,
-                    "no route found for channel kind"
-                );
-                return Err(ChannelError::NotFound(format!(
-                    "no route registered for {:?}",
-                    kind
-                )));
-            };
+        let span = info_span!(
+            "dispatch_outgoing_message",
+            actor = "channel_dispatcher",
+            channel_kind = ?kind,
+            conversation_id = %conversation_id.0,
+        );
 
-            match recipient.send(msg).await {
-                Ok(result) => {
-                    debug!(actor = "channel_dispatcher", conversation_id = %conversation_id.0, channel_kind = ?kind, "dispatched message to route");
-                    result
-                }
-                Err(err) => {
-                    error!(
-                        actor = "channel_dispatcher",
-                        conversation_id = %conversation_id.0,
-                        channel_kind = ?kind,
-                        error = %err,
-                        "failed to communicate with route"
-                    );
-                    Err(ChannelError::General(format!(
-                        "failed to communicate with route: {:?}",
-                        err
-                    )))
-                }
+        Box::pin(
+            async move {
+                let recipient = recipient.ok_or_else(|| {
+                    warn!("no route found for channel kind");
+                    ChannelError::NotFound(format!("no route registered for {:?}", kind))
+                })?;
+                Self::dispatch_message(recipient, msg).await?;
+                debug!("dispatched message to route");
+                Ok(())
             }
-        })
+            .instrument(span),
+        )
     }
 }
