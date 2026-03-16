@@ -4,14 +4,13 @@ use crate::core::messages::{DispatchOutgoingMessage, GenerateCompletion, HandleI
 use crate::core::model::{
     ChannelKind, ChatMessage, ConversationId, IncomingMessage, MessageId, OutgoingMessage, Role,
 };
-use crate::providers::StubProvider;
 use actix::prelude::*;
 use tracing::{Instrument, debug, error, info, info_span};
 
 // 1. Workflowアクターの構造体定義
 pub struct Workflow {
     // 他のアクターへメッセージを送るためのアドレス（Addr）を保持します
-    pub provider_addr: Addr<StubProvider>,
+    pub provider: Recipient<GenerateCompletion>,
     pub channel_dispatcher_addr: Addr<ChannelDispatcher>,
 }
 
@@ -26,7 +25,7 @@ impl Workflow {
 
     /// Provider (LLM) に対して GenerateCompletion を送信し、結果を取得する
     async fn get_ai_completion(
-        provider: Addr<StubProvider>,
+        provider: Recipient<GenerateCompletion>,
         conversation_id: ConversationId,
         history: Vec<ChatMessage>,
     ) -> Result<String, WorkflowError> {
@@ -92,7 +91,7 @@ impl Handler<HandleIncomingMessage> for Workflow {
     type Result = ResponseFuture<Result<(), WorkflowError>>;
 
     fn handle(&mut self, msg: HandleIncomingMessage, _ctx: &mut Self::Context) -> Self::Result {
-        let provider = self.provider_addr.clone();
+        let provider = self.provider.clone();
         let dispatcher = self.channel_dispatcher_addr.clone();
 
         let HandleIncomingMessage { message } = msg;

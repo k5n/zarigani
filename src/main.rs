@@ -7,7 +7,7 @@ use crate::core::{
     ChannelDispatcher, ChannelKind, ConversationId, HandleIncomingMessage, IncomingMessage,
     MessageId, ParticipantId, RegisterChannelRoute, Workflow,
 };
-use crate::providers::StubProvider;
+use crate::providers::{OpenAiCompatibleProvider, OpenAiCompatibleProviderConfig, StubProvider};
 use actix::prelude::*;
 use std::io::{self, BufRead, Write};
 use tracing::{error, warn};
@@ -19,7 +19,7 @@ async fn main() {
     println!("Starting Zarigani system...");
 
     // 各アクターを起動
-    let provider_addr = StubProvider.start();
+    let provider = build_provider_recipient();
     let channel_addr = CliChannel.start();
     let channel_dispatcher_addr = ChannelDispatcher::new().start();
 
@@ -49,7 +49,7 @@ async fn main() {
 
     // WorkflowにAddrを渡して起動
     let workflow_addr = Workflow {
-        provider_addr,
+        provider,
         channel_dispatcher_addr,
     }
     .start();
@@ -59,6 +59,29 @@ async fn main() {
     );
 
     run_cli_input_loop(workflow_addr).await;
+}
+
+fn build_provider_recipient() -> Recipient<crate::core::GenerateCompletion> {
+    match OpenAiCompatibleProviderConfig::from_env() {
+        Some(config) => match OpenAiCompatibleProvider::new(config) {
+            Ok(provider) => provider.start().recipient(),
+            Err(err) => {
+                warn!(
+                    actor = "main",
+                    error = %err,
+                    "failed to initialize OpenAI-compatible provider, falling back to stub provider"
+                );
+                StubProvider.start().recipient()
+            }
+        },
+        None => {
+            warn!(
+                actor = "main",
+                "OPENAI_BASE_URL and OPENAI_MODEL are not set, using stub provider"
+            );
+            StubProvider.start().recipient()
+        }
+    }
 }
 
 fn init_tracing() {
