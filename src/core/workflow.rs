@@ -2,7 +2,7 @@ use crate::core::ChannelDispatcher;
 use crate::core::errors::WorkflowError;
 use crate::core::messages::{DispatchOutgoingMessage, GenerateCompletion, HandleIncomingMessage};
 use crate::core::model::{
-    ChannelKind, ChatMessage, ConversationId, MessageId, OutgoingMessage, Role,
+    ChannelKind, ChatMessage, ConversationId, IncomingMessage, MessageId, OutgoingMessage, Role,
 };
 use crate::providers::StubProvider;
 use actix::prelude::*;
@@ -17,10 +17,10 @@ pub struct Workflow {
 
 impl Workflow {
     /// メッセージをChatMessageに変換し、履歴を組み立てる
-    fn prepare_chat_history(&self, content: String) -> Vec<ChatMessage> {
+    fn prepare_chat_history(&self, content: &str) -> Vec<ChatMessage> {
         vec![ChatMessage {
             role: Role::User,
-            content,
+            content: content.to_string(),
         }]
     }
 
@@ -92,29 +92,33 @@ impl Handler<HandleIncomingMessage> for Workflow {
     type Result = ResponseFuture<Result<(), WorkflowError>>;
 
     fn handle(&mut self, msg: HandleIncomingMessage, _ctx: &mut Self::Context) -> Self::Result {
-        // メソッド抽出した処理を順次実行
         let provider = self.provider_addr.clone();
         let dispatcher = self.channel_dispatcher_addr.clone();
-        let content = msg.message.content.clone();
-        let history = self.prepare_chat_history(content.clone());
-        let msg_conversation_id = msg.message.conversation_id;
-        let msg_in_reply_to = msg.message.message_id.clone();
-        let msg_kind = msg.message.kind;
-        let participant_id = msg.message.participant_id.0;
-        let incoming_content = content;
+
+        let HandleIncomingMessage { message } = msg;
+        let IncomingMessage {
+            kind: msg_kind,
+            conversation_id: msg_conversation_id,
+            participant_id,
+            message_id: msg_in_reply_to,
+            content,
+            ..
+        } = message;
+
+        let history = self.prepare_chat_history(&content);
 
         let span = info_span!(
             "handle_incoming_message",
             actor = "workflow",
             conversation_id = %msg_conversation_id.0,
-            message_id = ?msg.message.message_id,
+            message_id = ?msg_in_reply_to,
             channel_kind = ?msg_kind,
-            participant_id = %participant_id,
+            participant_id = %participant_id.0,
         );
 
         Box::pin(
             async move {
-                debug!(content = %incoming_content, "incoming message received");
+                debug!(content = %content, "incoming message received");
                 debug!("provider completion request started");
 
                 // ステップ1: AIからの回答を取得
