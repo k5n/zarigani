@@ -4,14 +4,16 @@
 
 まずはアクターのライフサイクルとメッセージパッシングに慣れます。
 
-作成するアクター: Channel (Discord), Provider (LLM), Workflow
+作成するアクター: Channel (CLI), Provider (LLM), Workflow
 
 やること:
 
-1. Discordで発言すると Channel が受け取り、Workflow にメッセージ（例: UserMessage）を送る。
+1. CLIで発言すると Channel が受け取り、Workflow にメッセージ（例: UserMessage）を送る。
 2. Workflow が Provider にメッセージ（例: ChatRequest）を送る。
 3. Provider が Codex(OpenAI) を叩き、結果を Workflow に返す。
-4. Workflow が Channel に返答を指示し、Discordに投稿される。
+4. Workflow が Channel に返答を指示し、CLIに表示される。
+
+必要ならここで Discord Channel を実装しても良いですが、最初は CLI で十分です。
 
 ## フェーズ2：記憶の導入（ステートの永続化）
 
