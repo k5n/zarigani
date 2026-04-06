@@ -217,4 +217,4 @@ RUST_LOG=zarigani=info,actix=info cargo run
 
 ## ライセンス
 
-（ライセンス未定。決まったら記述を更新。）
+Apache-2.0 License
